@@ -26,9 +26,64 @@ Complete integration guide for connecting OpenClaw agents to an InvokeAI image g
 
 ---
 
+## Step-by-Step Workflow
+
+### For Any Model Type
+
+#### Step 1: Determine Model Type
+```bash
+# Get model info
+curl -s http://10.0.0.144:9090/api/v2/models/i/{model_key} | jq '.base'
+```
+- `"sdxl"` → Use **SDXL Graph**
+- `"flux"` → Use **FLUX Graph**
+- `"sd-1"` → Use **SD 1.5 Graph**
+
+#### Step 2: Get Required Sub-Models (FLUX only)
+```bash
+# List all models to find sub-model keys
+curl -s "http://10.0.0.144:9090/api/v2/models/?limit=200" | jq '.items[] | {key, name, base, type}'
+```
+
+#### Step 3: Build the Request File
+```bash
+# Choose the appropriate template:
+# - SDXL: examples/sdxl-request.json
+# - FLUX: examples/flux-request.json
+# - SD 1.5: Modify SDXL template with compel instead of sdxl_compel_prompt
+```
+
+#### Step 4: Submit the Job
+```bash
+cat > /tmp/request.json << 'EOF'
+{ "batch": { "graph": { ... }, "runs": 1, "data": null } }
+EOF
+
+curl -s -X POST http://10.0.0.144:9090/api/v1/queue/default/enqueue_batch \
+  -H "Content-Type: application/json" \
+  -d @/tmp/request.json | jq
+```
+
+#### Step 5: Poll for Completion
+```bash
+# Use batch_id from Step 4 response
+curl -s http://10.0.0.144:9090/api/v1/queue/default/b/{batch_id}/status | jq
+```
+
+#### Step 6: Retrieve Image
+```bash
+# List completed images
+curl -s "http://10.0.0.144:9090/api/v1/images/?is_intermediate=false&limit=1" | jq
+
+# Download specific image
+curl -s "http://10.0.0.144:9090/api/v1/images/i/{image_name}/full" -o output.png
+```
+
+---
+
 ## Quick Start
 
-### Generate an Image (cURL)
+### Generate an Image (cURL - SDXL Example)
 
 ```bash
 # 1. Create a request file
@@ -107,6 +162,8 @@ curl -s "http://10.0.0.144:9090/api/v1/images/?is_intermediate=false&limit=1" | 
 curl -s "http://10.0.0.144:9090/api/v1/images/i/{image_name}/full" -o output.png
 ```
 
+**Note**: For FLUX, use the FLUX graph structure from the section above. The workflow is identical, only the graph nodes/edges differ.
+
 ---
 
 ## Server Setup
@@ -149,25 +206,108 @@ curl -s "http://10.0.0.144:9090/api/v2/models/i/{model_key}" | jq
 
 ## Understanding Model Types
 
-InvokeAI supports multiple model architectures, each requiring different graph structures:
+InvokeAI supports multiple model architectures, each requiring **completely different graph structures**. This is the most common source of errors.
+
+### Quick Decision Guide
+
+| If you want... | Use Model | Graph Type | Key Difference |
+|----------------|-----------|------------|----------------|
+| Photorealistic portraits, wildlife | SDXL | SDXL Graph | Has negative prompts, cfg_scale |
+| Best prompt adherence, general use | FLUX | FLUX Graph | No negative prompts, uses guidance |
+| Fast iterations, simple compositions | SD 1.5 | SD 1.5 Graph | Smaller, simpler structure |
+
+---
 
 ### SDXL (Stable Diffusion XL)
-- **Node types**: `sdxl_model_loader`, `sdxl_compel_prompt`, `denoise_latents`, `l2i`
-- **Features**: Negative prompts, style field, cfg_scale parameter
-- **Best for**: Photorealistic images, portraits, detailed scenes
+
+**When to use**: Photorealistic images, portraits, wildlife photography, detailed scenes
+
+**Required Nodes**:
+- `sdxl_model_loader` - Loads the SDXL model
+- `sdxl_compel_prompt` (×2) - Positive and negative prompts
+- `noise` - Generates random noise (contains seed, width, height)
+- `denoise_latents` - The denoising process (uses cfg_scale)
+- `l2i` - Converts latents to image
+- `save_image` - Saves the output
+
+**Key Parameters**:
+- `cfg_scale`: 7.5-12 (controls prompt adherence)
+- `steps`: 30-50
+- `scheduler`: euler, dpmpp_2m_sde_k
+
+**Why it's different**: SDXL has two text encoders (clip and clip2), supports negative prompts, and uses the traditional cfg_scale approach.
+
+**Common Mistake**: Forgetting the `noise` node. SDXL requires explicit noise generation.
+
+---
 
 ### FLUX (Black Forest Labs)
-- **Node types**: `flux_model_loader`, `flux_text_encoder`, `flux_denoise`, `flux_vae_decode`
-- **Features**: No negative prompts, `guidance` parameter instead of cfg_scale
-- **Best for**: General purpose, high quality, good prompt adherence
-- **Note**: Requires additional sub-models (t5_encoder, clip_embed)
+
+**When to use**: General purpose, highest quality, best prompt adherence, complex scenes
+
+**Required Nodes**:
+- `flux_model_loader` - Loads FLUX + 3 sub-models
+- `flux_text_encoder` - Encodes the prompt (uses t5_encoder + clip)
+- `flux_denoise` - Denoising (contains seed, width, height, guidance)
+- `flux_vae_decode` - Decodes latents to image
+- `save_image` - Saves the output
+
+**Key Parameters**:
+- `guidance`: 3.5-5.0 (replaces cfg_scale)
+- `num_steps`: 20-30 (FLUX converges faster)
+- `cfg_scale`: Always 1.0 (ignored, but required)
+
+**Required Sub-Models** (must be loaded in flux_model_loader):
+- `t5_encoder_model` - Text encoder (e.g., "t5_bnb_int8_quantized_encoder")
+- `clip_embed_model` - CLIP embedder (e.g., "clip-vit-large-patch14")
+- `vae_model` - VAE decoder (e.g., "FLUX.1-schnell_ae")
+
+**Why it's different**: 
+- No `noise` node (seed/width/height are in `flux_denoise`)
+- No negative prompts (FLUX doesn't use them)
+- No `cfg_scale` (uses `guidance` instead)
+- Requires 3 additional sub-models
+- Uses `transformer` field instead of `unet`
+
+**Critical Warning**: If you forget the sub-models, FLUX will fail silently or produce garbage output.
+
+---
 
 ### SD 1.5 (Stable Diffusion 1.5)
-- **Node types**: `main_model_loader`, `compel`, `denoise_latents`, `l2i`
-- **Features**: Smaller memory footprint, faster generation
-- **Best for**: Quick iterations, simpler compositions
 
-**Critical**: The graph structure MUST match the model type. Using SDXL nodes with a FLUX model will fail.
+**When to use**: Quick iterations, simpler compositions, lower memory usage
+
+**Required Nodes**:
+- `main_model_loader` - Loads the SD 1.5 model
+- `compel` (×2) - Positive and negative prompts
+- `noise` - Generates random noise
+- `denoise_latents` - The denoising process
+- `l2i` - Converts latents to image
+- `save_image` - Saves the output
+
+**Key Parameters**:
+- `cfg_scale`: 7.5-12
+- `steps`: 20-40
+- `width/height`: 512×512 (default), up to 768×768
+
+**Why it's different**: Similar to SDXL but uses `compel` instead of `sdxl_compel_prompt`, and only has one CLIP encoder.
+
+---
+
+### ⚠️ CRITICAL: Graph Structure Must Match Model Type
+
+**Using the wrong graph structure is the #1 failure mode.**
+
+| Model Type | Wrong Graph | Result |
+|------------|-------------|--------|
+| FLUX | SDXL graph | "Node not found" or silent failure |
+| SDXL | FLUX graph | "Field 'unet' not found" |
+| SD 1.5 | SDXL graph | "Field 'clip2' not found" |
+
+**Always check the model's `base` field** from `/api/v2/models/i/{model_key}` to determine which graph to use:
+- `"base": "sdxl"` → Use SDXL graph
+- `"base": "flux"` → Use FLUX graph
+- `"base": "sd-1"` → Use SD 1.5 graph
 
 ---
 
@@ -189,7 +329,7 @@ InvokeAI uses a node-based graph where:
 - **Graph** = nodes + edges
 - **Batch** wraps the graph for the queue API
 
-### Request Structure
+### Request Structure (All Models)
 
 ```json
 {
@@ -205,11 +345,16 @@ InvokeAI uses a node-based graph where:
 }
 ```
 
-### Important Notes
-- Nodes are a **dictionary** (keyed by node name), not an array
-- Edges reference nodes by their `id` field
-- Node `id` must match the key in the nodes dictionary
-- All edges must connect existing nodes and fields
+### ⚠️ Critical Rules
+
+1. **Nodes are a dictionary** keyed by node name, NOT an array
+2. **Node `id` must match** the dictionary key exactly
+3. **Edges reference nodes** by their `id` field, not the key
+4. **All edges must connect** existing nodes and valid fields
+5. **Graph structure must match** the model type (SDXL/FLUX/SD1.5)
+6. **Model keys must be exact** from `/api/v2/models/` endpoint
+
+---
 
 ---
 
@@ -416,55 +561,235 @@ InvokeAI uses a node-based graph where:
 
 ---
 
+## Model Comparison & Selection Guide
+
+### Detailed Comparison
+
+| Feature | SDXL | FLUX | SD 1.5 |
+|---------|------|------|--------|
+| **Best Use Case** | Photorealism, portraits | General purpose, quality | Quick iterations |
+| **Node Loader** | `sdxl_model_loader` | `flux_model_loader` | `main_model_loader` |
+| **Prompt Node** | `sdxl_compel_prompt` | `flux_text_encoder` | `compel` |
+| **Denoise Node** | `denoise_latents` | `flux_denoise` | `denoise_latents` |
+| **Image Decode** | `l2i` | `flux_vae_decode` | `l2i` |
+| **Negative Prompts** | ✅ Yes | ❌ No | ✅ Yes |
+| **Sub-models Required** | None | 3 (t5, clip, vae) | None |
+| **Noise Node** | ✅ Yes | ❌ No (in denoise) | ✅ Yes |
+| **Guidance Parameter** | N/A (uses cfg_scale) | ✅ Yes (3.5-5.0) | N/A (uses cfg_scale) |
+| **cfg_scale** | 7.5-12 | 1.0 (ignored) | 7.5-12 |
+| **Steps** | 30-50 | 20-30 | 20-40 |
+| **Memory Usage** | High | Very High | Medium |
+| **Speed** | Medium | Slower | Fast |
+| **Text Rendering** | ❌ No | ❌ No | ❌ No |
+| **Anatomy Accuracy** | Good | Better | Good |
+
+---
+
+### When to Use Which Model
+
+**Choose SDXL when**:
+- You need photorealistic portraits
+- You want negative prompts to control exclusions
+- You're doing wildlife/nature photography style
+- You need the `style` field for artistic control
+
+**Choose FLUX when**:
+- You want best overall quality
+- You need good prompt adherence
+- You're doing complex scenes with multiple subjects
+- You have enough VRAM (FLUX needs more memory)
+
+**Choose SD 1.5 when**:
+- You need quick iterations for testing
+- You have limited VRAM
+- You're doing simpler compositions
+- You're fine-tuning or training LoRAs
+
+---
+
+### Cross-Reference: Related Skills & Tools
+
+| Need | Use This | Repository |
+|------|----------|------------|
+| Readable text infographics | `pro-infographic` skill | (Separate skill) |
+| Simple prompt-based generation | Stable Diffusion API | http://10.0.0.155:7860 |
+| InvokeAI graph-based generation | This README | You're here! |
+| FLUX prompt examples | `flux-prompt-examples` | https://github.com/mgossman71/flux-prompt-examples |
+| Server installation | Proxmox LXC guide | https://github.com/mgossman71/InvokeAI-on-Proxmox-LXC-with-RTX-5070Ti |
+
+---
+
 ## Prompt Engineering
 
-### Best Practices
+### Best Practices by Model
+
+**SDXL**:
 - Be specific: "golden hour lighting" not just "nice lighting"
-- Include style keywords: "wildlife photography", "portrait photography", "digital art"
-- For FLUX: Be very specific about anatomy and features
-- SDXL benefits from the `style` field matching the prompt
+- Use the `style` field to match the prompt
+- Include negative prompts for quality: "blurry, deformed, ugly, low quality"
+- Good for: "portrait photography, 85mm lens, f/1.8, shallow depth of field"
+
+**FLUX**:
+- Be extremely specific about anatomy and features
+- Describe spatial relationships: "subject on left, background on right"
+- Use natural language: "a majestic sperm whale with massive square block-shaped head"
+- No negative prompts - describe what you want, not what you don't want
+- Good for: complex scenes, multiple subjects, precise compositions
+
+**SD 1.5**:
+- Simpler prompts work well
+- Use negative prompts for quality control
+- Good for: quick tests, simpler compositions
 
 ### Parameter Guidelines
 
-| Parameter | SDXL | FLUX | Notes |
-|-----------|------|------|-------|
-| Steps | 30-50 | 20-30 | FLUX converges faster |
-| CFG Scale | 7.5-12 | N/A | FLUX uses `guidance` |
-| Guidance | N/A | 3.5-5.0 | FLUX-specific |
-| Scheduler | euler, dpmpp_2m_sde_k | euler | |
-| Width | 1024 | 1024 | Multiple of 64 |
-| Height | 768-1536 | 768-1536 | Multiple of 64 |
+| Parameter | SDXL | FLUX | SD 1.5 | Notes |
+|-----------|------|------|--------|-------|
+| Steps | 30-50 | 20-30 | 20-40 | FLUX converges faster |
+| CFG Scale | 7.5-12 | 1.0 | 7.5-12 | FLAX uses guidance |
+| Guidance | N/A | 3.5-5.0 | N/A | FLUX-specific |
+| Scheduler | euler, dpmpp_2m_sde_k | euler | euler | |
+| Width | 1024 | 1024 | 512 | Multiple of 64 |
+| Height | 768-1536 | 768-1536 | 512-768 | Multiple of 64 |
+
+---
 
 ---
 
 ## Common Issues & Troubleshooting
 
 ### "Node not found in graph"
-- Ensure node dictionary keys match edge references
-- Verify node `id` fields match the dictionary keys
+**Cause**: Node dictionary keys don't match edge references, or node `id` doesn't match the key.
+**Fix**: 
+1. Ensure node `id` matches the dictionary key exactly
+2. Check edge `node_id` references match the keys
+3. Verify all nodes referenced in edges exist in the nodes dict
+
+**Example**:
+```json
+// WRONG - id doesn't match key
+{"nodes": {"loader": {"id": "model_loader", ...}}}
+
+// CORRECT - id matches key
+{"nodes": {"model_loader": {"id": "model_loader", ...}}}
+```
+
+---
+
+### "Field 'unet' not found" (or 'transformer', 'clip', etc.)
+**Cause**: Using wrong graph type for the model.
+**Fix**: 
+1. Check model base: `curl http://SERVER:9090/api/v2/models/i/{model_key}`
+2. Use matching graph:
+   - `"base": "sdxl"` → SDXL graph (uses `unet`)
+   - `"base": "flux"` → FLUX graph (uses `transformer`)
+   - `"base": "sd-1"` → SD 1.5 graph (uses `unet`)
+
+---
+
+### FLUX produces blank/garbage output
+**Cause**: Missing sub-models in flux_model_loader.
+**Fix**: Include ALL 3 sub-models:
+```json
+"model_loader": {
+  "type": "flux_model_loader",
+  "model": {"key": "flux-1-dev", "base": "flux", "type": "main"},
+  "t5_encoder_model": {"key": "...", "type": "t5_encoder"},
+  "clip_embed_model": {"key": "...", "type": "clip_embed"},
+  "vae_model": {"key": "...", "type": "vae"}
+}
+```
+Get sub-model keys from: `curl http://SERVER:9090/api/v2/models/?model_type=main`
+
+---
 
 ### HTML responses instead of JSON
-- API endpoints return HTML if the path is wrong
-- Use exact paths from OpenAPI spec at `/openapi.json`
+**Cause**: Wrong API endpoint or missing Content-Type header.
+**Fix**: 
+1. Use exact paths from OpenAPI spec at `/openapi.json`
+2. Always include `-H "Content-Type: application/json"`
+3. Use `-d @file.json` not `-d "{...}"` (avoids shell escaping issues)
+
+---
 
 ### Timeout errors
-- Increase timeout for high step counts or large images
-- FLUX models may take longer due to larger architecture
+**Cause**: Request takes longer than client timeout.
+**Fix**: 
+1. Increase curl timeout: `curl --max-time 300 ...`
+2. Reduce steps for testing (FLUX: 20 steps, SDXL: 25 steps)
+3. Use smaller resolution for testing (512×512)
+4. Check server logs: `journalctl -u invokeai -f`
 
-### No models available
-- Check `/api/v2/models/` endpoint
-- Models may need to be downloaded through the InvokeAI web UI first
+---
+
+### "Model not found"
+**Cause**: Model key doesn't exist or model not downloaded.
+**Fix**: 
+1. List available models: `curl http://SERVER:9090/api/v2/models/`
+2. Check model key matches exactly (case-sensitive)
+3. Download model via InvokeAI web UI if missing
+4. Use exact key from API response, not display name
+
+---
 
 ### Text renders as gibberish
-- **Diffusion models (FLUX, SDXL) cannot render real readable text**
-- They generate text-like patterns that look plausible but are nonsense
-- For infographics with real text, use external API models (DALL-E 3, Ideogram)
-- Alternative: Generate text-free base image, add text with image editor
+**Cause**: Diffusion models fundamentally cannot render real text.
+**Fix**: 
+- **Understand**: This is normal behavior, not a bug
+- **For infographics**: Use external API models (DALL-E 3, Ideogram) that support text
+- **Workaround**: Generate text-free base image, add text with image editor (Photoshop, GIMP)
+- **Never**: Try to get diffusion models to render readable text - it's mathematically impossible
 
-### Wrong anatomy (e.g., blue whale instead of sperm whale)
-- Use extreme specificity in prompts
-- Describe distinctive features: "massive square block-shaped head", "wrinkled skin", "triangular tail flukes"
-- Consider generating isolated subject first, then compositing
+---
+
+### Wrong anatomy or subject
+**Cause**: Prompt too generic, model confusion.
+**Fix**: 
+1. Use extreme specificity: "massive square block-shaped head" not just "big head"
+2. Describe distinctive features: "wrinkled dark gray skin", "triangular tail flukes"
+3. Include context: "underwater photography", "size comparison with diver"
+4. For FLUX: Describe spatial relationships explicitly
+5. Use negative prompts (SDXL/SD1.5): "blue whale, humpback whale, orca"
+
+---
+
+### High memory usage / OOM errors
+**Cause**: Model too large for available VRAM.
+**Fix**: 
+1. Use quantized models (bnb_nf4, gguf) - check model name for "quantized"
+2. Reduce resolution (1024×1024 uses less memory than 2048×2048)
+3. Close other GPU applications
+4. Enable CPU offloading in invokeai.yaml
+5. For FLUX: Use flux-1-schnell (faster, slightly less quality)
+
+---
+
+### Slow generation
+**Cause**: High step count, large resolution, or CPU fallback.
+**Fix**: 
+1. Reduce steps: FLUX 20-25, SDXL 25-30
+2. Check GPU is being used (not CPU): `nvidia-smi` during generation
+3. Use schnell models for quick iterations
+4. Enable xformers or flash attention if available
+
+---
+
+### "Invalid graph structure"
+**Cause**: Missing required edges or disconnected nodes.
+**Fix**: 
+1. Every node (except model_loader) must have an incoming edge
+2. Every field referenced in edges must exist in the node type
+3. Follow the exact edge patterns in the examples above
+4. Use the SDXL edges for SDXL, FLUX edges for FLUX (they're different!)
+
+---
+
+### Authentication errors
+**Cause**: InvokeAI configured for multi-user mode.
+**Fix**: 
+1. Check invokeai.yaml: `multiuser: false` for no auth
+2. If multiuser is enabled, provide API token in header
+3. Default single-user mode requires no authentication
 
 ---
 
