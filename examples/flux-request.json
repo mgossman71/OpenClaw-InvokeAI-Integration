@@ -1,0 +1,54 @@
+{
+  "batch": {
+    "graph": {
+      "id": "flux_example",
+      "nodes": {
+        "model_loader": {
+          "type": "flux_model_loader",
+          "id": "model_loader",
+          "model": {"key": "flux-1-dev", "hash": "", "name": "FLUX.1 dev", "base": "flux", "type": "main"},
+          "t5_encoder_model": {"key": "36d7f5c9-03a7-46fa-9f0a-90be4e05d155", "hash": "", "name": "t5_bnb_int8_quantized_encoder", "base": "any", "type": "t5_encoder"},
+          "clip_embed_model": {"key": "0c55e4d1-7042-4e65-b65d-1e500e802865", "hash": "", "name": "clip-vit-large-patch14", "base": "any", "type": "clip_embed"},
+          "vae_model": {"key": "151393bc-1b21-42fe-b147-ecaceb35d278", "hash": "", "name": "FLUX.1-schnell_ae", "base": "flux", "type": "vae"}
+        },
+        "prompt": {
+          "type": "flux_text_encoder",
+          "id": "prompt",
+          "prompt": "a majestic sperm whale with massive square block-shaped head, wrinkled dark gray skin, small pectoral fins, triangular tail flukes, deep ocean environment, wildlife photography, highly detailed, photorealistic",
+          "t5_max_seq_len": 512
+        },
+        "denoise": {
+          "type": "flux_denoise",
+          "id": "denoise",
+          "num_steps": 25,
+          "cfg_scale": 1.0,
+          "scheduler": "euler",
+          "width": 1024,
+          "height": 1536,
+          "seed": 42,
+          "guidance": 3.5
+        },
+        "vae_decode": {
+          "type": "flux_vae_decode",
+          "id": "vae_decode"
+        },
+        "save_image": {
+          "type": "save_image",
+          "id": "save_image",
+          "is_intermediate": false
+        }
+      },
+      "edges": [
+        {"source": {"node_id": "model_loader", "field": "transformer"}, "destination": {"node_id": "denoise", "field": "transformer"}},
+        {"source": {"node_id": "model_loader", "field": "clip"}, "destination": {"node_id": "prompt", "field": "clip"}},
+        {"source": {"node_id": "model_loader", "field": "t5_encoder"}, "destination": {"node_id": "prompt", "field": "t5_encoder"}},
+        {"source": {"node_id": "prompt", "field": "conditioning"}, "destination": {"node_id": "denoise", "field": "positive_text_conditioning"}},
+        {"source": {"node_id": "denoise", "field": "latents"}, "destination": {"node_id": "vae_decode", "field": "latents"}},
+        {"source": {"node_id": "model_loader", "field": "vae"}, "destination": {"node_id": "vae_decode", "field": "vae"}},
+        {"source": {"node_id": "vae_decode", "field": "image"}, "destination": {"node_id": "save_image", "field": "image"}}
+      ]
+    },
+    "runs": 1,
+    "data": null
+  }
+}
