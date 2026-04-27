@@ -74,3 +74,29 @@ Based on real-world integration work with InvokeAI v5.x, tested with:
 - FLUX.1 schnell (bnb_quantized_nf4b)
 - FLUX.1 dev (bnb_quantized_nf4b)
 - Juggernaut XL v9 (SDXL)
+
+## References and Resources
+
+### Official InvokeAI Resources
+- **InvokeAI GitHub**: https://github.com/invoke-ai/InvokeAI
+- **InvokeAI Documentation**: https://invoke-ai.github.io/InvokeAI/
+- **InvokeAI Support Portal**: https://support.invoke.ai
+
+### API and Development Resources
+- **OpenAPI Specification**: Available at `http://YOUR_INVOKE_SERVER:9090/openapi.json` on your local server
+- **Swagger UI**: `http://YOUR_INVOKE_SERVER:9090/docs`
+- **API GitHub Issues**: https://github.com/invoke-ai/InvokeAI/issues (search for API-related issues)
+
+### Model-Specific Resources
+- **FLUX Models on InvokeAI**: https://support.invoke.ai/support/solutions/articles/151000199277-using-flux-models-on-invoke
+- **Hugging Face FLUX Models**: https://huggingface.co/black-forest-labs
+- **InvokeAI Model Manager Docs**: https://invoke-ai.github.io/InvokeAI/features/model_manager/
+
+### Community and Support
+- **InvokeAI Discord**: https://discord.gg/invokeai
+- **Reddit r/InvokeAI**: https://www.reddit.com/r/InvokeAI/
+- **MCP Server Reference**: https://github.com/coinstax/invokeai-mcp-server (used as reference for graph structure)
+
+### Articles and Tutorials
+- **FLUX img2img Guide**: https://stable-diffusion-art.com/flux-img2img-inpainting/
+- **InvokeAI Installation**: https://invoke-ai.github.io/InvokeAI/installation/quick_start/
