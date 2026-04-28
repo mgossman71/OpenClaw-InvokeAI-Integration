@@ -91,10 +91,15 @@ fi
 
 # Generate random seed if not provided
 # NOTE: FLUX models do NOT support seed:-1 (random). Always use explicit seeds.
+# ALSO: Quantized FLUX models have SEED COLLISION - different seeds may produce identical images!
 if [ "$SEED" = "-1" ]; then
-  SEED=$(python3 -c "import random; print(random.randint(0, 2147483647))")
+  SEED=$(python3 -c "import random; print(random.randint(1000000, 2147483647))")
   echo "Generated random seed: $SEED"
 fi
+
+# Track previous image hashes to detect collisions (for FLUX quantized)
+PREV_HASH_FILE="/tmp/invoke_prev_hash.txt"
+PREV_PROMPT_FILE="/tmp/invoke_prev_prompt.txt"
 
 echo "Generating image..."
 echo "  Model: $MODEL_KEY"
@@ -283,10 +288,45 @@ if images.get("items"):
     image_name = images["items"][0]["image_name"]
     print(f"Image: {image_name}")
     img_data = api_get_binary(f"/api/v1/images/i/{image_name}/full")
-    output_path = "$OUTPUT" if "$OUTPUT" else f"/root/.openclaw/workspace/gen_{batch_id[:8]}.png"
-    with open(output_path, "wb") as f:
-        f.write(img_data)
-    print(f"✓ Saved to {output_path}")
+    
+    # Check for seed collision (FLUX quantized bug)
+    import hashlib
+    current_hash = hashlib.md5(img_data).hexdigest()
+    
+    # Check against previous hash
+    prev_hash = ""
+    prev_prompt = ""
+    try:
+        with open("/tmp/invoke_prev_hash.txt", "r") as f:
+            prev_hash = f.read().strip()
+        with open("/tmp/invoke_prev_prompt.txt", "r") as f:
+            prev_prompt = f.read().strip()
+    except:
+        pass
+    
+    if current_hash == prev_hash and "$PROMPT" != prev_prompt:
+        print(f"⚠️ WARNING: Seed collision detected! Same image generated for different prompt.")
+        print(f"  Prompt was: {prev_prompt}")
+        print(f"  Now: {'$PROMPT'}")
+        print(f"  MD5: {current_hash}")
+        print(f"  → Try again with a different seed")
+        
+        # Save the collided image anyway but warn
+        output_path = "$OUTPUT" if "$OUTPUT" else f"/root/.openclaw/workspace/gen_{batch_id[:8]}.png"
+        with open(output_path, "wb") as f:
+            f.write(img_data)
+        print(f"✓ Saved to {output_path} (COLLISION WARNING)")
+    else:
+        # Save hash and prompt for next comparison
+        with open("/tmp/invoke_prev_hash.txt", "w") as f:
+            f.write(current_hash)
+        with open("/tmp/invoke_prev_prompt.txt", "w") as f:
+            f.write("$PROMPT")
+        
+        output_path = "$OUTPUT" if "$OUTPUT" else f"/root/.openclaw/workspace/gen_{batch_id[:8]}.png"
+        with open(output_path, "wb") as f:
+            f.write(img_data)
+        print(f"✓ Saved to {output_path}")
 else:
     print("No image found")
     sys.exit(1)
