@@ -6,7 +6,7 @@
         "model_loader": {
           "type": "flux_model_loader",
           "id": "model_loader",
-          "model": {"key": "flux-1-dev", "hash": "", "name": "FLUX.1 dev", "base": "flux", "type": "main"},
+          "model": {"key": "4279ed9f-ee14-44b6-a43a-3413b1edfd5a", "hash": "", "name": "FLUX.1 dev (quantized)", "base": "flux", "type": "main"},
           "t5_encoder_model": {"key": "36d7f5c9-03a7-46fa-9f0a-90be4e05d155", "hash": "", "name": "t5_bnb_int8_quantized_encoder", "base": "any", "type": "t5_encoder"},
           "clip_embed_model": {"key": "0c55e4d1-7042-4e65-b65d-1e500e802865", "hash": "", "name": "clip-vit-large-patch14", "base": "any", "type": "clip_embed"},
           "vae_model": {"key": "151393bc-1b21-42fe-b147-ecaceb35d278", "hash": "", "name": "FLUX.1-schnell_ae", "base": "flux", "type": "vae"}

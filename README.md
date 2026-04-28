@@ -96,7 +96,7 @@ cat > /tmp/request.json << 'EOF'
         "model_loader": {
           "type": "sdxl_model_loader",
           "id": "model_loader",
-          "model": {"key": "juggernaut-xl-v9", "hash": "...", "name": "Juggernaut XL v9", "base": "sdxl", "type": "main"}
+          "model": {"key": "a95230a4-0304-451b-9e85-1e112bee1f14", "hash": "...", "name": "Juggernaut XL v9", "base": "sdxl", "type": "main"}
         },
         "positive_prompt": {
           "type": "sdxl_compel_prompt",
@@ -191,11 +191,11 @@ curl -s "http://10.0.0.144:9090/api/v2/models/?model_type=main" | jq
 
 | Model | Base | Size | Best For | Key Feature |
 |-------|------|------|----------|-------------|
-| `juggernaut-xl-v9` | SDXL | 6.46 GB | Photorealistic, portraits, wildlife | High detail |
-| `flux-1-dev` | FLUX | 6.24 GB | General purpose, high quality | Best prompt adherence |
-| `flux-1-schnell` | FLUX | 6.23 GB | Fast iterations | 4-step generation |
-| `flux-1-krea-dev` | FLUX | 6.46 GB | Creative, artistic | Artistic styles |
-| `flux-1-kontext-dev` | FLUX | 6.46 GB | Contextual understanding | Complex scenes |
+| `a95230a4-0304-451b-9e85-1e112bee1f14` | SDXL | 6.46 GB | Photorealistic, portraits, wildlife | High detail |
+| `4279ed9f-ee14-44b6-a43a-3413b1edfd5a` | FLUX.1 dev (quantized) | FLUX | 6.24 GB | General purpose, high quality | Best prompt adherence |
+| `3bc65a62-1410-476e-bc44-2c23d6fb278a` | FLUX.1 schnell | FLUX | 6.23 GB | Fast iterations | 4-step generation |
+| `c9465203-d02e-4f7b-b54e-31680f0bcc04` | FLUX.1 Krea dev (quantized) | FLUX | 6.46 GB | Creative, artistic | Artistic styles |
+| `f1e16898-132d-4233-9551-304e8f445f94` | FLUX.1 Kontext dev (quantized) | FLUX | 6.46 GB | Contextual understanding | Complex scenes |
 
 ### Get Model Details
 ```bash
@@ -368,7 +368,7 @@ InvokeAI uses a node-based graph where:
   "model_loader": {
     "type": "sdxl_model_loader",
     "id": "model_loader",
-    "model": {"key": "juggernaut-xl-v9", "hash": "...", "name": "Juggernaut XL v9", "base": "sdxl", "type": "main"}
+    "model": {"key": "a95230a4-0304-451b-9e85-1e112bee1f14", "hash": "...", "name": "Juggernaut XL v9", "base": "sdxl", "type": "main"}
   },
   "positive_prompt": {
     "type": "sdxl_compel_prompt",
@@ -446,7 +446,7 @@ InvokeAI uses a node-based graph where:
   "model_loader": {
     "type": "flux_model_loader",
     "id": "model_loader",
-    "model": {"key": "flux-1-dev", "hash": "...", "name": "FLUX.1 dev", "base": "flux", "type": "main"},
+    "model": {"key": "4279ed9f-ee14-44b6-a43a-3413b1edfd5a", "hash": "...", "name": "FLUX.1 dev", "base": "flux", "type": "main"},
     "t5_encoder_model": {"key": "36d7f5c9-03a7-46fa-9f0a-90be4e05d155", "hash": "...", "name": "t5_bnb_int8_quantized_encoder", "base": "any", "type": "t5_encoder"},
     "clip_embed_model": {"key": "0c55e4d1-7042-4e65-b65d-1e500e802865", "hash": "...", "name": "clip-vit-large-patch14", "base": "any", "type": "clip_embed"},
     "vae_model": {"key": "151393bc-1b21-42fe-b147-ecaceb35d278", "hash": "...", "name": "FLUX.1-schnell_ae", "base": "flux", "type": "vae"}
@@ -693,7 +693,7 @@ InvokeAI uses a node-based graph where:
 ```json
 "model_loader": {
   "type": "flux_model_loader",
-  "model": {"key": "flux-1-dev", "base": "flux", "type": "main"},
+  "model": {"key": "4279ed9f-ee14-44b6-a43a-3413b1edfd5a", "base": "flux", "type": "main"},
   "t5_encoder_model": {"key": "...", "type": "t5_encoder"},
   "clip_embed_model": {"key": "...", "type": "clip_embed"},
   "vae_model": {"key": "...", "type": "vae"}
@@ -760,7 +760,7 @@ Get sub-model keys from: `curl http://SERVER:9090/api/v2/models/?model_type=main
 2. Reduce resolution (1024×1024 uses less memory than 2048×2048)
 3. Close other GPU applications
 4. Enable CPU offloading in invokeai.yaml
-5. For FLUX: Use flux-1-schnell (faster, slightly less quality)
+5. For FLUX: Use `3bc65a62-1410-476e-bc44-2c23d6fb278a` (FLUX.1 schnell, faster, slightly less quality)
 
 ---
 

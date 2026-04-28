@@ -6,7 +6,7 @@
         "model_loader": {
           "type": "sdxl_model_loader",
           "id": "model_loader",
-          "model": {"key": "juggernaut-xl-v9", "hash": "", "name": "Juggernaut XL v9", "base": "sdxl", "type": "main"}
+          "model": {"key": "a95230a4-0304-451b-9e85-1e112bee1f14", "hash": "", "name": "Juggernaut XL v9", "base": "sdxl", "type": "main"}
         },
         "positive_prompt": {
           "type": "sdxl_compel_prompt",
