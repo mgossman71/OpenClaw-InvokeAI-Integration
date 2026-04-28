@@ -834,6 +834,99 @@ echo "Using seed: $SEED"
 
 ---
 
+### Seed collision (quantized FLUX models)
+**Cause**: Some quantized FLUX models (especially NF4/INT8) have a bug where certain seed ranges produce identical images despite different seed values.
+**Fix**: 
+1. **Always verify uniqueness** with MD5 hashes when generating multiple images:
+   ```bash
+   md5sum image1.png image2.png image3.png
+   ```
+2. If hashes match, the seeds collided — generate new seeds in a different range:
+   ```python
+   seed = random.randint(1000000000, 2000000000)  # Use wider range
+   ```
+3. Avoid sequential seeds (e.g., 42, 43, 44) — use widely spaced values
+
+**Example workflow**:
+```bash
+# Generate 3 images and verify they're unique
+for i in 1 2 3; do
+  SEED=$(python3 -c "import random; print(random.randint(1000000000, 2000000000))")
+  echo "Image $i: seed=$SEED"
+  # ... generate image ...
+done
+
+# Verify uniqueness
+md5sum *.png
+```
+
+---
+
+### JSON creation failures with heredocs
+**Cause**: Shell heredocs (`cat << EOF`) don't reliably expand variables for complex JSON, especially with curly braces and special characters.
+**Fix**: **Always use Python to create JSON files**:
+```python
+import json
+
+data = {
+    "batch": {
+        "graph": {
+            "nodes": {"denoise": {"seed": seed_value, ...}},
+            "edges": [...]
+        },
+        "runs": 1
+    }
+}
+
+with open('request.json', 'w') as f:
+    json.dump(data, f)
+```
+**Why**: Python handles all escaping automatically, while shell heredocs can mangle `$variables`, backslashes, and quotes.
+
+**Example (complete workflow)**:
+```python
+import json, random
+
+# 1. Generate random seed
+seed = random.randint(1000000000, 2000000000)
+
+# 2. Build request
+data = {
+    "batch": {
+        "graph": {
+            "id": f"image_{seed}",
+            "nodes": {
+                "model_loader": {...},
+                "prompt": {...},
+                "denoise": {
+                    "type": "flux_denoise",
+                    "seed": seed,  # Explicit random seed
+                    ...
+                },
+                "vae_decode": {...},
+                "save_image": {...}
+            },
+            "edges": [...]
+        },
+        "runs": 1,
+        "data": None
+    }
+}
+
+# 3. Save to file
+with open('/tmp/request.json', 'w') as f:
+    json.dump(data, f)
+
+# 4. Submit
+curl -s -X POST http://10.0.0.144:9090/api/v1/queue/default/enqueue_batch \
+  -H "Content-Type: application/json" \
+  -d @/tmp/request.json
+```
+
+**Where it's documented**: [Common Issues](#common-issues--troubleshooting)
+
+---
+
 ## References & Resources
 
 ### Official InvokeAI Resources
