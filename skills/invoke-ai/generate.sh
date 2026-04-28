@@ -4,6 +4,24 @@
 
 set -e
 
+# Prevent duplicate execution - check if already running with same parameters
+LOCK_FILE="/tmp/invokeai_generate_${USER:-root}.lock"
+if [ -f "$LOCK_FILE" ]; then
+    PID=$(cat "$LOCK_FILE" 2>/dev/null)
+    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+        echo "Error: Another generation is already in progress (PID: $PID)"
+        echo "Wait for it to complete or remove $LOCK_FILE if stale"
+        exit 1
+    fi
+fi
+
+# Create lock file with current PID
+echo $$ > "$LOCK_FILE"
+
+# Cleanup lock on exit
+cleanup_lock() { rm -f "$LOCK_FILE"; }
+trap cleanup_lock EXIT
+
 INVOKEAI_URL="http://10.0.0.144:9090"
 QUEUE_ID="default"
 
@@ -58,7 +76,10 @@ echo "  Seed: $SEED"
 
 # Create Python script for graph generation
 python3 << PYEOF
-import json, random, urllib.request, urllib.error, time, sys
+import json, random, urllib.request, urllib.error, time, sys, datetime
+
+# Store batch start time BEFORE enqueuing - use timezone-aware UTC
+batch_start_time = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 INVOKEAI_URL = "$INVOKEAI_URL"
 
@@ -152,7 +173,8 @@ if is_flux:
             },
             "vae_decode": {
                 "type": "flux_vae_decode",
-                "id": "vae_decode"
+                "id": "vae_decode",
+                "is_intermediate": True
             },
             "save_image": {
                 "type": "save_image",
@@ -211,7 +233,8 @@ else:
             },
             "latents_to_image": {
                 "type": "l2i",
-                "id": "latents_to_image"
+                "id": "latents_to_image",
+                "is_intermediate": True
             },
             "save_image": {
                 "type": "save_image",
@@ -259,10 +282,32 @@ for i in range(120):
     if i % 10 == 0:
         print(f"  ...{i*2}s")
 
-# Get image
-images = api_get("/api/v1/images/?is_intermediate=false&limit=1")
-if images.get("items"):
-    image_name = images["items"][0]["image_name"]
+# After completion, find images created after batch_start_time
+images = api_get("/api/v1/images/?is_intermediate=false&limit=10")
+image_name = None
+cutoff_time = batch_start_time - datetime.timedelta(seconds=5)  # 5 second buffer
+
+for img in images.get("items", []):
+    img_time_str = img.get("created_at", "").replace("Z", "+00:00")
+    if img_time_str:
+        try:
+            img_time = datetime.datetime.fromisoformat(img_time_str)
+            # Remove timezone for comparison if needed
+            if img_time.tzinfo:
+                img_time = img_time.replace(tzinfo=None)
+            if img_time >= cutoff_time:
+                image_name = img["image_name"]
+                break
+        except ValueError:
+            pass
+
+if not image_name:
+    # Fallback: use latest but warn
+    if images.get("items"):
+        image_name = images["items"][0]["image_name"]
+        print(f"WARNING: Using latest image ({image_name}) - may not be from this batch")
+
+if image_name:
     print(f"Image: {image_name}")
     img_data = api_get_binary(f"/api/v1/images/i/{image_name}/full")
     output_path = "$OUTPUT" if "$OUTPUT" else f"/root/.openclaw/workspace/gen_{batch_id[:8]}.png"

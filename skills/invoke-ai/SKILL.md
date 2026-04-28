@@ -224,7 +224,8 @@ InvokeAI uses a node-based graph. The graph structure differs between SDXL and F
   },
   "latents_to_image": {
     "type": "l2i",
-    "id": "latents_to_image"
+    "id": "latents_to_image",
+    "is_intermediate": true
   },
   "save_image": {
     "type": "save_image",
@@ -294,7 +295,8 @@ InvokeAI uses a node-based graph. The graph structure differs between SDXL and F
   },
   "vae_decode": {
     "type": "flux_vae_decode",
-    "id": "vae_decode"
+    "id": "vae_decode",
+    "is_intermediate": true
   },
   "save_image": {
     "type": "save_image",
@@ -488,7 +490,7 @@ graph = {
         "negative_prompt": {"type": prompt_type, "id": "negative_prompt", "prompt": """$NEGATIVE_PROMPT""", "style": ""},
         "noise": {"type": "noise", "id": "noise", "seed": $SEED, "width": $WIDTH, "height": $HEIGHT, "use_cpu": False},
         "denoise": {"type": "denoise_latents", "id": "denoise", "steps": $STEPS, "cfg_scale": $CFG_SCALE, "scheduler": "$SCHEDULER", "denoising_start": 0, "denoising_end": 1},
-        "latents_to_image": {"type": "l2i", "id": "latents_to_image"},
+        "latents_to_image": {"type": "l2i", "id": "latents_to_image", "is_intermediate": True},
         "save_image": {"type": "save_image", "id": "save_image", "is_intermediate": False}
     },
     "edges": [
