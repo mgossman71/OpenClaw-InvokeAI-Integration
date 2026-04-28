@@ -775,6 +775,26 @@ Get sub-model keys from: `curl http://SERVER:9090/api/v2/models/?model_type=main
 
 ---
 
+### Duplicate images in gallery (same seed)
+**Cause**: Intermediate processing nodes (`vae_decode`, `latents_to_image`) not marked as `is_intermediate: true`, causing them to save duplicate images alongside the final `save_image` output.
+**Fix**: 
+1. Add `"is_intermediate": true` to `vae_decode` (FLUX) and `latents_to_image` (SDXL) nodes
+2. Keep `"is_intermediate": false` (or omit) on `save_image` node only
+3. Verify with API: `curl -s "http://SERVER:9090/api/v1/images/?is_intermediate=false&limit=10" | jq '.items | length'` — should return 1 per generation
+
+**Example (FLUX)**:
+```json
+"vae_decode": {
+  "type": "flux_vae_decode",
+  "id": "vae_decode",
+  "is_intermediate": true
+}
+```
+
+**Where it's documented**: [SDXL Graph](#sdxl-graph), [FLUX Graph](#flux-graph), and [generate.sh](skills/invoke-ai/generate.sh)
+
+---
+
 ### High memory usage / OOM errors
 **Cause**: Model too large for available VRAM.
 **Fix**: 
