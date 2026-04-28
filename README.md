@@ -437,6 +437,7 @@ InvokeAI uses a node-based graph where:
 - No `negative_prompt` node (FLUX doesn't use negative prompts)
 - No `cfg_scale` parameter (use `guidance` instead, typically 3.5)
 - Uses `flux_model_loader` with additional sub-models
+- **Seed behavior: `-1` does NOT randomize** — use explicit seeds (see [Common Issues](#seed--1-does-not-randomize-flux-models))
 - Uses `flux_text_encoder` instead of `sdxl_compel_prompt`
 - Uses `flux_vae_decode` instead of `l2i`
 
@@ -465,7 +466,7 @@ InvokeAI uses a node-based graph where:
     "scheduler": "euler",
     "width": 1024,
     "height": 1536,
-    "seed": -1,
+    "seed": 42,
     "guidance": 3.5
   },
   "vae_decode": {
@@ -646,21 +647,32 @@ InvokeAI uses a node-based graph where:
 | Parameter | SDXL | FLUX | SD 1.5 | Notes |
 |-----------|------|------|--------|-------|
 | Steps | 30-50 | 20-30 | 20-40 | FLUX converges faster |
-| CFG Scale | 7.5-12 | 1.0 | 7.5-12 | FLAX uses guidance |
+| CFG Scale | 7.5-12 | 1.0 | 7.5-12 | FLUX uses guidance instead |
 | Guidance | N/A | 3.5-5.0 | N/A | FLUX-specific |
 | Scheduler | euler, dpmpp_2m_sde_k | euler | euler | |
 | Width | 1024 | 1024 | 512 | Multiple of 64 |
 | Height | 768-1536 | 768-1536 | 512-768 | Multiple of 64 |
-| **Seed** | **-1** | **-1** | **-1** | **-1 = random (recommended)** |
+| Seed | Any integer | Any integer | Any integer | See Seed Behavior below |
 
 ### Seed Behavior
 
-| Seed Value | Result | Use Case |
-|------------|--------|----------|
-| `-1` | **Random** — unique image every time | ✅ **Default for exploration** |
-| Fixed number (e.g., `42`, `777`) | **Reproducible** — same prompt + seed = same image | A/B testing, comparisons, replicating a good result |
+| Seed Value | SDXL Behavior | FLUX Behavior | Use Case |
+|------------|---------------|---------------|----------|
+| `-1` | Random (✅ works) | Fixed seed (❌ NOT random) | SDXL: exploration; FLUX: avoid |
+| `0 - 2147483647` | Unique image per seed | Unique image per seed | ✅ **Explicit random seed for FLUX** |
+| Fixed number (e.g., `42`) | Reproducible | Reproducible | A/B testing, replicating results |
 
-**Best Practice:** Always use `seed: -1` for default generation. Only fix the seed when you need to reproduce or iterate on a specific result.
+**Critical FLUX Warning:** `seed: -1` does NOT produce random images in InvokeAI's FLUX implementation. It uses a fixed seed instead. You MUST generate explicit random seeds client-side:
+
+```python
+import random
+seed = random.randint(0, 2147483647)
+```
+
+**Best Practice:** 
+- **SDXL**: Use `seed: -1` for randomization
+- **FLUX**: Use `seed: random.randint(0, 2147483647)` (generate client-side)
+- **All models**: Only fix the seed when you need to reproduce or iterate on a specific result
 
 ---
 
@@ -801,6 +813,25 @@ Get sub-model keys from: `curl http://SERVER:9090/api/v2/models/?model_type=main
 2. If multiuser is enabled, provide API token in header
 3. Default single-user mode requires no authentication
 
+### `seed: -1` does NOT randomize (FLUX models)
+**Cause**: InvokeAI's FLUX implementation does NOT treat `-1` as a random seed. It uses a fixed seed instead.
+**Fix**: Generate random seeds client-side before sending the request:
+```python
+import random
+seed = random.randint(0, 2147483647)  # Valid seed range for InvokeAI
+
+# Then pass the explicit seed in the request:
+# "denoise": {"type": "flux_denoise", "seed": seed, ...}
+```
+**Example (bash with Python):**
+```bash
+SEED=$(python3 -c "import random; print(random.randint(0, 2147483647))")
+echo "Using seed: $SEED"
+# Then substitute $SEED into your JSON before sending
+```
+**Verification**: Generate two images with different explicit seeds and compare MD5 hashes. They will be different. Two images with `seed: -1` will be identical.
+**Where it's documented**: [FLUX Graph](#flux-graph) and [Common Issues](#common-issues--troubleshooting)
+
 ---
 
 ## References & Resources
@@ -871,6 +902,12 @@ This section documents the painful discoveries from hours of trial and error. Re
 **What we tried:** Wrong API endpoint  
 **What happened:** Got HTML response instead of JSON  
 **The fix:** Use `/api/v1/queue/default/enqueue_batch` not `/api/v1/queue`  
+**Where it's documented:** [Common Issues](#common-issues--troubleshooting)
+
+### The "Seed -1 Is Not Random" Trap
+**What we tried:** Using `seed: -1` expecting randomization  
+**What happened:** Identical images every time  
+**The fix:** Generate explicit random seeds client-side with `random.randint(0, 2147483647)`  
 **Where it's documented:** [Common Issues](#common-issues--troubleshooting)
 
 ---
