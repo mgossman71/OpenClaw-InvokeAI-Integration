@@ -1,0 +1,150 @@
+{
+  "batch": {
+    "graph": {
+      "id": "sd15_test_graph",
+      "nodes": {
+        "model_loader": {
+          "type": "main_model_loader",
+          "id": "model_loader",
+          "model": {
+            "key": "sd-v1-5",
+            "hash": "",
+            "name": "Stable Diffusion 1.5",
+            "base": "sd-1",
+            "type": "main"
+          }
+        },
+        "positive_prompt": {
+          "type": "compel",
+          "id": "positive_prompt",
+          "prompt": "a serene landscape with mountains and a lake, digital art"
+        },
+        "negative_prompt": {
+          "type": "compel",
+          "id": "negative_prompt",
+          "prompt": "blurry, low quality, ugly"
+        },
+        "noise": {
+          "type": "noise",
+          "id": "noise",
+          "seed": 42,
+          "width": 512,
+          "height": 512,
+          "use_cpu": false
+        },
+        "denoise": {
+          "type": "denoise_latents",
+          "id": "denoise",
+          "steps": 25,
+          "cfg_scale": 7.5,
+          "scheduler": "euler",
+          "denoising_start": 0,
+          "denoising_end": 1
+        },
+        "latents_to_image": {
+          "type": "l2i",
+          "id": "latents_to_image"
+        },
+        "save_image": {
+          "type": "save_image",
+          "id": "save_image",
+          "is_intermediate": false
+        }
+      },
+      "edges": [
+        {
+          "source": {
+            "node_id": "model_loader",
+            "field": "unet"
+          },
+          "destination": {
+            "node_id": "denoise",
+            "field": "unet"
+          }
+        },
+        {
+          "source": {
+            "node_id": "model_loader",
+            "field": "clip"
+          },
+          "destination": {
+            "node_id": "positive_prompt",
+            "field": "clip"
+          }
+        },
+        {
+          "source": {
+            "node_id": "model_loader",
+            "field": "clip"
+          },
+          "destination": {
+            "node_id": "negative_prompt",
+            "field": "clip"
+          }
+        },
+        {
+          "source": {
+            "node_id": "positive_prompt",
+            "field": "conditioning"
+          },
+          "destination": {
+            "node_id": "denoise",
+            "field": "positive_conditioning"
+          }
+        },
+        {
+          "source": {
+            "node_id": "negative_prompt",
+            "field": "conditioning"
+          },
+          "destination": {
+            "node_id": "denoise",
+            "field": "negative_conditioning"
+          }
+        },
+        {
+          "source": {
+            "node_id": "noise",
+            "field": "noise"
+          },
+          "destination": {
+            "node_id": "denoise",
+            "field": "noise"
+          }
+        },
+        {
+          "source": {
+            "node_id": "denoise",
+            "field": "latents"
+          },
+          "destination": {
+            "node_id": "latents_to_image",
+            "field": "latents"
+          }
+        },
+        {
+          "source": {
+            "node_id": "model_loader",
+            "field": "vae"
+          },
+          "destination": {
+            "node_id": "latents_to_image",
+            "field": "vae"
+          }
+        },
+        {
+          "source": {
+            "node_id": "latents_to_image",
+            "field": "image"
+          },
+          "destination": {
+            "node_id": "save_image",
+            "field": "image"
+          }
+        }
+      ]
+    },
+    "runs": 1,
+    "data": null
+  }
+}
