@@ -27,7 +27,7 @@
         "noise": {
           "type": "noise",
           "id": "noise",
-          "seed": 42,
+          "seed": -1,
           "width": 512,
           "height": 512,
           "use_cpu": false

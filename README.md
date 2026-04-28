@@ -107,7 +107,7 @@ cat > /tmp/request.json << 'EOF'
         "noise": {
           "type": "noise",
           "id": "noise",
-          "seed": 42,
+          "seed": -1,
           "width": 1024,
           "height": 768,
           "use_cpu": false
@@ -385,7 +385,7 @@ InvokeAI uses a node-based graph where:
   "noise": {
     "type": "noise",
     "id": "noise",
-    "seed": 42,
+    "seed": -1,
     "width": 1024,
     "height": 768,
     "use_cpu": false
@@ -465,7 +465,7 @@ InvokeAI uses a node-based graph where:
     "scheduler": "euler",
     "width": 1024,
     "height": 1536,
-    "seed": 42,
+    "seed": -1,
     "guidance": 3.5
   },
   "vae_decode": {
@@ -518,7 +518,7 @@ InvokeAI uses a node-based graph where:
   "noise": {
     "type": "noise",
     "id": "noise",
-    "seed": 42,
+    "seed": -1,
     "width": 512,
     "height": 512,
     "use_cpu": false
@@ -651,6 +651,16 @@ InvokeAI uses a node-based graph where:
 | Scheduler | euler, dpmpp_2m_sde_k | euler | euler | |
 | Width | 1024 | 1024 | 512 | Multiple of 64 |
 | Height | 768-1536 | 768-1536 | 512-768 | Multiple of 64 |
+| **Seed** | **-1** | **-1** | **-1** | **-1 = random (recommended)** |
+
+### Seed Behavior
+
+| Seed Value | Result | Use Case |
+|------------|--------|----------|
+| `-1` | **Random** — unique image every time | ✅ **Default for exploration** |
+| Fixed number (e.g., `42`, `777`) | **Reproducible** — same prompt + seed = same image | A/B testing, comparisons, replicating a good result |
+
+**Best Practice:** Always use `seed: -1` for default generation. Only fix the seed when you need to reproduce or iterate on a specific result.
 
 ---
 

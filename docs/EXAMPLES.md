@@ -57,7 +57,7 @@ graph = {
             "scheduler": "euler",
             "width": 1024,
             "height": 1024,
-            "seed": random.randint(0, 2147483647),
+            "seed": -1,
             "guidance": 4.0
         },
         "vae_decode": {
@@ -112,7 +112,7 @@ graph = {
         "noise": {
             "type": "noise",
             "id": "noise",
-            "seed": random.randint(0, 2147483647),
+            "seed": -1,
             "width": 1024,
             "height": 768,
             "use_cpu": False
@@ -235,7 +235,7 @@ def generate_flux(prompt, width=1024, height=1024, steps=4, output="output.png")
                 "scheduler": "euler",
                 "width": width,
                 "height": height,
-                "seed": random.randint(0, 2147483647),
+                "seed": -1,
                 "guidance": 4.0
             },
             "vae_decode": {

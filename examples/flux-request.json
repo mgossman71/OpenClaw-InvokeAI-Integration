@@ -25,7 +25,7 @@
           "scheduler": "euler",
           "width": 1024,
           "height": 1536,
-          "seed": 42,
+          "seed": -1,
           "guidance": 3.5
         },
         "vae_decode": {

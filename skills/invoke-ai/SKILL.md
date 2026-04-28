@@ -161,7 +161,7 @@ InvokeAI uses a node-based graph. Here's the standard text-to-image graph:
   "noise": {
     "type": "noise",
     "id": "noise",
-    "seed": 12345,
+    "seed": -1,
     "width": 1024,
     "height": 768,
     "use_cpu": false

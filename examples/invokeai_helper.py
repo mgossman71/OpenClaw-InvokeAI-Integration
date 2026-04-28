@@ -86,7 +86,7 @@ def build_sdxl_graph(model_info, prompt, negative_prompt, width, height, steps, 
             "noise": {
                 "type": "noise",
                 "id": "noise",
-                "seed": seed,
+                "seed": -1,
                 "width": width,
                 "height": height,
                 "use_cpu": False
@@ -183,7 +183,7 @@ def build_flux_graph(model_info, prompt, width, height, steps, guidance, seed):
                 "scheduler": "euler",
                 "width": width,
                 "height": height,
-                "seed": seed,
+                "seed": -1,
                 "guidance": guidance
             },
             "vae_decode": {

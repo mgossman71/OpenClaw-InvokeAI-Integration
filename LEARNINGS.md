@@ -101,11 +101,21 @@ curl -s "http://10.0.0.144:9090/api/v1/images/i/{image_name}/full" -o output.png
 
 When InvokeAI runs with multiuser disabled, no API key is needed. Just make requests.
 
-### 10. Seed for Reproducibility
+### 10. Seed for Reproducibility vs Variation
 
-Always set a seed if you want reproducible results:
-- SDXL: `"seed": 42` in the `noise` node
-- FLUX: `"seed": 42` in the `flux_denoise` node
+**Default: Random seeds (`-1`) for variety**
+
+| Seed Value | Result | Use Case |
+|------------|--------|----------|
+| `-1` | **Random** — unique image every time | ✅ **Default for exploration** |
+| Fixed number (e.g., `42`, `777`) | **Reproducible** — same prompt + seed = same image | A/B testing, comparisons, replicating a good result |
+
+**Where to set the seed:**
+- **SDXL**: `"seed": -1` in the `noise` node
+- **FLUX**: `"seed": -1` in the `flux_denoise` node
+- **SD 1.5**: `"seed": -1` in the `noise` node
+
+**Best Practice:** Always use `seed: -1` for default generation. Only fix the seed when you need to reproduce or iterate on a specific result.
 
 ## Testing Checklist
 
