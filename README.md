@@ -1003,6 +1003,13 @@ This section documents the painful discoveries from hours of trial and error. Re
 **The fix:** Generate explicit random seeds client-side with `random.randint(0, 2147483647)`  
 **Where it's documented:** [Common Issues](#common-issues--troubleshooting)
 
+### The "Seed Collision" Trap (Quantized FLUX)
+**What we tried:** Different seeds with quantized FLUX model  
+**What happened:** Identical images from different seeds AND different prompts  
+**The fix:** Use widely spaced seeds (1M+ apart) and verify with MD5 hashes  
+**Detection:** Compare MD5 of generated images - if same for different prompts, it's a collision  
+**Where it's documented:** [Common Issues](#common-issues--troubleshooting)
+
 ---
 
 ## License
