@@ -817,6 +817,54 @@ Get sub-model keys from: `curl http://SERVER:9090/api/v2/models/?model_type=main
 
 ---
 
+## Lessons Learned the Hard Way
+
+This section documents the painful discoveries from hours of trial and error. Read this BEFORE you start debugging.
+
+### The "Nodes Are a Dictionary" Trap
+**What we tried:** Array of nodes `[{"type": "..."}, {"type": "..."}]`  
+**What happened:** Silent failures, node not found errors  
+**The fix:** Nodes must be a dictionary keyed by name: `{"model_loader": {"type": "..."}, "prompt": {"type": "..."}}`  
+**Where it's documented:** [Graph Structure Reference](#graph-structure-reference)
+
+### The "Wrong Graph for Model" Trap
+**What we tried:** Using SDXL graph with FLUX model  
+**What happened:** "Node not found in graph" or "Field 'unet' not found"  
+**The fix:** Check model base type first (`sdxl`, `flux`, or `sd-1`), then use matching graph  
+**Where it's documented:** [Understanding Model Types](#understanding-model-types)
+
+### The "Missing FLUX Sub-Models" Trap
+**What we tried:** FLUX graph without t5_encoder_model, clip_embed_model, vae_model  
+**What happened:** Blank white image or completely garbled output (no error message!)  
+**The fix:** Must include ALL 3 sub-models in flux_model_loader node  
+**Where it's documented:** [FLUX Graph](#flux-graph)
+
+### The "Batch Wrapper" Trap
+**What we tried:** Sending graph directly without batch wrapper  
+**What happened:** API rejected the request  
+**The fix:** Must wrap in `{"batch": {"graph": graph, "runs": 1, "data": null}}`  
+**Where it's documented:** [Request Structure](#request-structure-all-models)
+
+### The "Model Key Exact Match" Trap
+**What we tried:** Using display name or partial key  
+**What happened:** "Model not found" errors  
+**The fix:** Must use exact key from `/api/v2/models/` endpoint  
+**Where it's documented:** [Available Models](#available-models)
+
+### The "Text Is Always Gibberish" Reality
+**What we tried:** Asking for text in images (infographic text, signs, labels)  
+**What happened:** Text-like patterns that aren't readable  
+**The fix:** Use external APIs (DALL-E 3, Ideogram) for real text, or generate text-free base and add text later  
+**Where it's documented:** [Text Rendering Limitations](#text-rendering-limitations)
+
+### The "HTML Instead of JSON" Trap
+**What we tried:** Wrong API endpoint  
+**What happened:** Got HTML response instead of JSON  
+**The fix:** Use `/api/v1/queue/default/enqueue_batch` not `/api/v1/queue`  
+**Where it's documented:** [Common Issues](#common-issues--troubleshooting)
+
+---
+
 ## License
 
 This integration guide is provided as-is for the OpenClaw community.
