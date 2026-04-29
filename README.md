@@ -11,18 +11,364 @@ Complete integration guide for connecting OpenClaw agents to an InvokeAI image g
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
-2. [Server Setup](#server-setup)
-3. [Available Models](#available-models)
-4. [Understanding Model Types](#understanding-model-types)
-5. [API Authentication](#api-authentication)
-6. [Text-to-Image Generation](#text-to-image-generation)
-7. [Graph Structure Reference](#graph-structure-reference)
+2. [⚠️ Critical Implementation Patterns](#critical-implementation-patterns)
+3. [Server Setup](#server-setup)
+4. [Available Models](#available-models)
+5. [Understanding Model Types](#understanding-model-types)
+6. [API Authentication](#api-authentication)
+7. [Text-to-Image Generation](#text-to-image-generation)
+8. [Graph Structure Reference](#graph-structure-reference)
    - [SDXL Graph](#sdxl-graph)
    - [FLUX Graph](#flux-graph)
    - [SD 1.5 Graph](#sd-15-graph)
-8. [Prompt Engineering](#prompt-engineering)
-9. [Common Issues & Troubleshooting](#common-issues--troubleshooting)
-10. [References & Resources](#references--resources)
+9. [Prompt Engineering](#prompt-engineering)
+10. [Common Issues & Troubleshooting](#common-issues--troubleshooting)
+11. [References & Resources](#references--resources)
+
+---
+
+## ⚠️ Critical Implementation Patterns
+
+**Read this before implementing!** These patterns address common pitfalls that cause silent failures and wasted debugging time.
+
+### Pattern 1: Model Keys Are UUIDs, Not Display Names
+
+**CRITICAL**: API model keys are **UUIDs**, not friendly names like `flux.1-dev` or `juggernaut-xl-v9`.
+
+❌ **Wrong:**
+```json
+"model": {"key": "flux.1-dev"}  // This is a display name, NOT an API key
+```
+
+✅ **Right:**
+```json
+"model": {"key": "4279ed9f-ee14-44b6-a43a-3413b1edfd5a"}  // Actual UUID from API
+```
+
+**How to find model UUIDs:**
+```bash
+# List all models with their UUIDs
+curl -s "http://10.0.0.144:9090/api/v2/models/?model_type=main&limit=200" | jq '.models[] | {key, name, base}'
+```
+
+**Example output:**
+```json
+{
+  "key": "4279ed9f-ee14-44b6-a43a-3413b1edfd5a",
+  "name": "FLUX.1 dev (quantized)",
+  "base": "flux"
+}
+```
+
+**Dynamic Model Resolution (Recommended):**
+```python
+import urllib.request, json
+
+def get_model_uuid(friendly_name):
+    """Resolve friendly name to UUID"""
+    req = urllib.request.Request("http://10.0.0.144:9090/api/v2/models/?model_type=main&limit=200")
+    with urllib.request.urlopen(req) as resp:
+        models = json.loads(resp.read().decode())['models']
+        for model in models:
+            if friendly_name.lower() in model['name'].lower():
+                return model['key']
+    raise ValueError(f"Model '{friendly_name}' not found")
+
+# Usage
+model_key = get_model_uuid("FLUX.1 dev")
+print(f"UUID: {model_key}")  # 4279ed9f-ee14-44b6-a43a-3413b1edfd5a
+```
+
+---
+
+### Pattern 2: FLUX Sub-Model Discovery (Non-Negotiable!)
+
+**⚠️ CRITICAL WARNING**: If you forget sub-models, FLUX will fail silently or produce incorrect results.
+
+The FLUX model loader requires **four** model components:
+1. **Main transformer** (the FLUX model itself)
+2. **t5_encoder** (text encoding)
+3. **clip_embed** (CLIP vision encoder)
+4. **vae** (variational autoencoder for decoding)
+
+**Don't hardcode these** — discover them dynamically:
+
+```python
+import urllib.request, json
+
+def discover_flux_submodels(main_model_key):
+    """Discover required sub-models for FLUX"""
+    # Get all available models
+    req = urllib.request.Request("http://10.0.0.144:9090/api/v2/models/?model_type=any&limit=500")
+    with urllib.request.urlopen(req) as resp:
+        all_models = json.loads(resp.read().decode())['models']
+    
+    # Find required sub-models
+    submodels = {}
+    for model in all_models:
+        if model['type'] == 't5_encoder' and model['base'] == 'any':
+            submodels['t5_encoder'] = model['key']
+        elif model['type'] == 'clip_embed' and model['base'] == 'any':
+            submodels['clip_embed'] = model['key']
+        elif model['type'] == 'vae' and model['base'] == 'flux':
+            submodels['vae'] = model['key']
+    
+    # Verify we found all required sub-models
+    required = ['t5_encoder', 'clip_embed', 'vae']
+    missing = [r for r in required if r not in submodels]
+    if missing:
+        raise RuntimeError(f"Missing FLUX sub-models: {missing}")
+    
+    return submodels
+
+# Usage
+submodels = discover_flux_submodels("4279ed9f-ee14-44b6-a43a-3413b1edfd5a")
+print(submodels)
+# {
+#   't5_encoder': 'a0be381d-353a-4720-b28c-0cc63d2d9f0d',
+#   'clip_embed': '0c55e4d1-7042-4e65-b65d-1e500e802865',
+#   'vae': '151393bc-1b21-42fe-b147-ecaceb35d278'
+# }
+```
+
+**Then use in your graph:**
+```python
+"model_loader": {
+    "type": "flux_model_loader",
+    "id": "model_loader",
+    "model": {"key": main_model_key, "base": "flux", "type": "main"},
+    "t5_encoder_model": {"key": submodels['t5_encoder'], "base": "any", "type": "t5_encoder"},
+    "clip_embed_model": {"key": submodels['clip_embed'], "base": "any", "type": "clip_embed"},
+    "vae_model": {"key": submodels['vae'], "base": "flux", "type": "vae"}
+}
+```
+
+---
+
+### Pattern 3: Time-Based Image Retrieval (Prevent Race Conditions)
+
+**⚠️ CRITICAL**: The `/api/v1/images/` endpoint returns ALL images, including cached ones from previous batches. Using `limit=1` is unreliable.
+
+**Correct approach: Track batch start time and filter by timestamp**
+
+```python
+import datetime, time
+
+# Record start time BEFORE enqueueing
+start_time = datetime.datetime.now()
+print(f"Batch started at: {start_time}")
+
+# Enqueue batch
+result = api_post("/api/v1/queue/default/enqueue_batch", graph)
+batch_id = result["batch"]["batch_id"]
+
+# Poll for completion
+for i in range(150):
+    time.sleep(2)
+    status = api_get(f"/api/v1/queue/default/b/{batch_id}/status")
+    if status.get("completed", 0) > 0:
+        print("Batch completed!")
+        break
+    if status.get("failed", 0) > 0:
+        raise RuntimeError("Batch failed!")
+
+# Add small buffer for image indexing
+time.sleep(5)
+
+# Query images and filter by creation time
+images = api_get("/api/v1/images/?is_intermediate=false&limit=50")
+
+our_image = None
+for item in images.get("items", []):
+    created_str = item.get("created_at", "")
+    try:
+        # Parse ISO format timestamp
+        created = datetime.datetime.fromisoformat(created_str.replace("Z", "+00:00")).replace(tzinfo=None)
+        if created > start_time:
+            our_image = item
+            print(f"Found our image: {item['image_name']} (created: {created})")
+            break
+    except Exception as e:
+        print(f"Error parsing timestamp: {e}")
+        continue
+
+if not our_image:
+    raise RuntimeError("No image found for this batch!")
+
+# Download only OUR image
+img_data = api_get_binary(f"/api/v1/images/i/{our_image['image_name']}/full")
+with open(output_path, "wb") as f:
+    f.write(img_data)
+```
+
+**Why this matters:**
+- Multiple users/systems may be generating images concurrently
+- InvokeAI may cache images from previous sessions
+- `limit=1` might return someone else's image or a stale cached image
+- Timestamp filtering guarantees you get YOUR image
+
+---
+
+### Pattern 4: Prevent Duplicate Images (is_intermediate Flag)
+
+**ALWAYS set `is_intermediate: true` on the VAE decode node.** Without this, InvokeAI saves BOTH the decoded image AND the final image, creating duplicates.
+
+❌ **Wrong:**
+```json
+"vae_decode": {"type": "flux_vae_decode", "id": "vae_decode"}
+```
+
+✅ **Right:**
+```json
+"vae_decode": {
+    "type": "flux_vae_decode",
+    "id": "vae_decode",
+    "is_intermediate": true  // CRITICAL: prevents duplicate saves
+}
+```
+
+Only the `save_image` node should have `is_intermediate: false`.
+
+---
+
+### Pattern 5: FLUX Seed Requirements
+
+**NEVER use `seed: -1` with FLUX.** It doesn't support automatic random seeds and may cause failures. Always generate explicit seeds:
+
+❌ **Wrong:**
+```json
+"seed": -1  // FLUX doesn't support this
+```
+
+✅ **Right:**
+```python
+import random
+"seed": random.randint(1000000000, 2147483647)  // Explicit seed
+```
+
+**Seed collision note:** Some quantized FLUX models may produce identical images with different seeds. If you notice duplicates:
+- Use widely spaced seeds (1M+ apart)
+- Verify uniqueness with MD5: `md5sum image1.png image2.png`
+- Regenerate with new random seeds if hashes match
+
+---
+
+### Pattern 6: Error Handling and Debugging
+
+**Common Error Responses:**
+
+**404 Not Found** (wrong model key or endpoint):
+```json
+{
+  "detail": "Model 'flux.1-dev' not found"
+}
+```
+**Cause**: Using display name instead of UUID
+
+**400 Bad Request** (invalid graph structure):
+```json
+{
+  "detail": "Node 'vae_decode' referenced in edge but not found in graph.nodes"
+}
+```
+**Cause**: Typo in node ID or missing node definition
+
+**Empty Batch Response** (silent failure):
+```json
+{
+  "batch": {
+    "batch_id": "abc123",
+    "status": "completed",
+    "completed": 1,
+    "failed": 0
+  }
+}
+// But no images were created!
+```
+**Cause**: Missing FLUX sub-models (most common), or incorrect node types
+
+**Debug Checklist:**
+1. ✅ Verify model key is UUID (not display name)
+2. ✅ Check FLUX sub-models are loaded (t5_encoder, clip_embed, vae)
+3. ✅ Confirm `is_intermediate: true` on vae_decode
+4. ✅ Use explicit seed (not -1)
+5. ✅ Check queue status for errors:
+   ```bash
+   curl -s "http://10.0.0.144:9090/api/v1/queue/default/list_all" | jq
+   ```
+6. ✅ Review InvokeAI server console logs for stack traces
+
+---
+
+### Pattern 7: Lock File Mechanism (Prevent Concurrent Generations)
+
+For production systems, prevent duplicate generations with file-based locking:
+
+```python
+import os, fcntl
+
+LOCK_FILE = "/tmp/invokeai_generation.lock"
+
+def acquire_lock():
+    """Prevent concurrent generations"""
+    lock_fd = open(LOCK_FILE, 'w')
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return lock_fd
+    except IOError:
+        raise RuntimeError("Another generation is in progress")
+
+def release_lock(lock_fd):
+    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+    lock_fd.close()
+    if os.path.exists(LOCK_FILE):
+        os.remove(LOCK_FILE)
+
+# Usage
+lock = acquire_lock()
+try:
+    # Generate image...
+    result = generate_image(prompt)
+finally:
+    release_lock(lock)
+```
+
+---
+
+### Quick Reference: Common Mistakes vs Correct Approaches
+
+| Mistake | Correct Approach |
+|---------|------------------|
+| `"key": "flux.1-dev"` | Query API for UUID: `"key": "4279ed9f-..."` |
+| Hardcode FLUX sub-models | Discover dynamically with `discover_flux_submodels()` |
+| `seed: -1` | `random.randint(1000000000, 2147483647)` |
+| `limit=1` for images | Filter by `created_at > start_time` |
+| No `is_intermediate` flag | Set `is_intermediate: true` on vae_decode |
+| No error handling | Check 404/400 responses, debug with checklist |
+
+---
+
+### Complete Working Example
+
+For a production-ready implementation that demonstrates all patterns, see:
+- **`examples/complete_generation_example.py`** - Full Python script with all 7 patterns implemented
+
+```bash
+# Quick usage
+python3 examples/complete_generation_example.py "cute robot assistant" robot.png
+
+# With custom parameters (edit the script or use as template)
+python3 examples/complete_generation_example.py "cyberpunk cityscape" city.png
+```
+
+This example includes:
+- ✅ Dynamic model key resolution
+- ✅ Automatic FLUX sub-model discovery
+- ✅ Time-based image retrieval
+- ✅ Proper `is_intermediate` flags
+- ✅ Explicit seed generation
+- ✅ Comprehensive error handling
+- ✅ Lock file mechanism
 
 ---
 
@@ -40,10 +386,20 @@ curl -s http://10.0.0.144:9090/api/v2/models/i/{model_key} | jq '.base'
 - `"sd-1"` → Use **SD 1.5 Graph**
 
 #### Step 2: Get Required Sub-Models (FLUX only)
+
+**⚠️ CRITICAL**: FLUX requires 4 model components. Don't hardcode — discover dynamically:
+
 ```bash
 # List all models to find sub-model keys
-curl -s "http://10.0.0.144:9090/api/v2/models/?limit=200" | jq '.items[] | {key, name, base, type}'
+curl -s "http://10.0.0.144:9090/api/v2/models/?model_type=any&limit=500" | jq '.models[] | {key, name, base, type}'
+
+# Look for:
+# - type: "t5_encoder" + base: "any"
+# - type: "clip_embed" + base: "any"  
+# - type: "vae" + base: "flux"
 ```
+
+**Recommended**: Use the Python discovery function in [Pattern 2](#pattern-2-flux-sub-model-discovery-non-negotiable) to automatically find and wire up sub-models.
 
 #### Step 3: Build the Request File
 ```bash
@@ -51,6 +407,10 @@ curl -s "http://10.0.0.144:9090/api/v2/models/?limit=200" | jq '.items[] | {key,
 # - SDXL: examples/sdxl-request.json
 # - FLUX: examples/flux-request.json
 # - SD 1.5: Modify SDXL template with compel instead of sdxl_compel_prompt
+
+# OR use the complete Python implementation that handles all patterns automatically:
+# - examples/complete_generation_example.py
+python3 examples/complete_generation_example.py "your prompt" output.png
 ```
 
 #### Step 4: Submit the Job
@@ -70,14 +430,44 @@ curl -s -X POST http://10.0.0.144:9090/api/v1/queue/default/enqueue_batch \
 curl -s http://10.0.0.144:9090/api/v1/queue/default/b/{batch_id}/status | jq
 ```
 
-#### Step 6: Retrieve Image
-```bash
-# List completed images
-curl -s "http://10.0.0.144:9090/api/v1/images/?is_intermediate=false&limit=1" | jq
+#### Step 6: Retrieve Image (Time-Based Filtering)
 
-# Download specific image
-curl -s "http://10.0.0.144:9090/api/v1/images/i/{image_name}/full" -o output.png
+**⚠️ CRITICAL**: Don't use `limit=1` alone — it may return someone else's image or a cached one. Use timestamp filtering:
+
+```python
+import datetime, time
+
+# Record start time BEFORE enqueueing (do this in Step 4)
+start_time = datetime.datetime.now()
+
+# ... after batch completion ...
+
+# Add small buffer for image indexing
+time.sleep(5)
+
+# Query images and filter by creation time
+images = api_get("/api/v1/images/?is_intermediate=false&limit=50")
+
+our_image = None
+for item in images.get("items", []):
+    created_str = item.get("created_at", "")
+    try:
+        # Parse ISO format timestamp
+        created = datetime.datetime.fromisoformat(created_str.replace("Z", "+00:00")).replace(tzinfo=None)
+        if created > start_time:
+            our_image = item
+            break
+    except:
+        continue
+
+if not our_image:
+    raise RuntimeError("No image found for this batch!")
+
+# Download only OUR image
+curl -s "http://10.0.0.144:9090/api/v1/images/i/{our_image['image_name']}/full" -o output.png
 ```
+
+See [Pattern 3: Time-Based Image Retrieval](#pattern-3-time-based-image-retrieval-prevent-race-conditions) for complete Python example.
 
 ---
 

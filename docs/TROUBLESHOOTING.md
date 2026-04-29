@@ -1,6 +1,56 @@
 # Troubleshooting Guide
 
+## Error Response Examples
+
+### 404 Not Found (Wrong Model Key)
+```json
+{
+  "detail": "Model 'flux.1-dev' not found"
+}
+```
+**Cause**: Using display name instead of UUID  
+**Fix**: Query `/api/v2/models/` to get actual UUID keys
+
+### 400 Bad Request (Invalid Graph Structure)
+```json
+{
+  "detail": "Node 'vae_decode' referenced in edge but not found in graph.nodes"
+}
+```
+**Cause**: Typo in node ID or missing node definition  
+**Fix**: Verify all `node_id` references in edges match keys in `nodes` dict
+
+### Empty Batch (Silent Failure)
+```json
+{
+  "batch": {
+    "batch_id": "abc123",
+    "status": "completed",
+    "completed": 1,
+    "failed": 0
+  }
+}
+// But no images were created!
+```
+**Cause**: Missing FLUX sub-models (most common), incorrect node types, or missing edges  
+**Fix**: 
+1. Verify all 4 FLUX sub-models loaded (t5_encoder, clip_embed, vae, main transformer)
+2. Check node types match model architecture (flux_* for FLUX, sdxl_* for SDXL)
+3. Verify all required edges are present
+4. Check InvokeAI server console for stack traces
+
+---
+
 ## Common Issues
+
+### "Unknown model" or "Model not found"
+**Cause**: Using display name (e.g., `flux.1-dev`) instead of UUID  
+**Fix**: Model keys are UUIDs, not friendly names
+```bash
+# Get actual UUID keys
+curl -s "http://10.0.0.144:9090/api/v2/models/?model_type=main&limit=200" | jq '.models[] | {key, name}'
+```
+Use the `key` field (UUID), not the `name` field (display name)
 
 ### "Node not found in graph"
 **Cause**: Node ID in edges doesn't match node key in nodes dict  
@@ -107,6 +157,41 @@ SDXL benefits from the `style` field matching the main prompt content.
 3. **Verify model info**: `GET /api/v2/models/i/{key}`
 4. **Test simple graph**: Start with minimal nodes
 5. **Check OpenAPI spec**: `GET /openapi.json` for exact field names
+6. **Review queue status**: `GET /api/v1/queue/default/list_all` - shows failed batches with errors
+7. **Check server console logs** - stack traces appear here for silent failures
+
+## Race Conditions & Image Retrieval
+
+### Problem: Getting wrong/cached images
+**Symptom**: Downloaded image doesn't match your prompt, or is from a previous batch  
+**Cause**: Using `limit=1` without timestamp filtering  
+**Fix**: Record batch start time and filter by `created_at > start_time`
+
+```python
+# BEFORE enqueueing
+start_time = datetime.datetime.now()
+
+# AFTER batch completion (+ 5 second buffer)
+images = api_get("/api/v1/images/?is_intermediate=false&limit=50")
+our_image = None
+for item in images.get("items", []):
+    created = datetime.datetime.fromisoformat(item['created_at'].replace("Z", "+00:00"))
+    if created.replace(tzinfo=None) > start_time:
+        our_image = item
+        break
+```
+
+See [Pattern 3: Time-Based Image Retrieval](../README.md#pattern-3-time-based-image-retrieval-prevent-race-conditions) in README.md.
+
+### Problem: Duplicate images created
+**Symptom**: Two image files for each generation  
+**Cause**: Missing `is_intermediate: true` on VAE decode node  
+**Fix**: Set `is_intermediate: true` on `flux_vae_decode` or `l2i` node, only `save_image` should have `is_intermediate: false`
+
+### Problem: Concurrent generations colliding
+**Symptom**: Multiple batches running simultaneously, unpredictable results  
+**Cause**: No locking mechanism  
+**Fix**: Implement file-based lock (see [Pattern 7](../README.md#pattern-7-lock-file-mechanism-prevent-concurrent-generations))
 
 ## Getting Help
 
