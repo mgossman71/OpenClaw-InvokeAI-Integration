@@ -1,0 +1,120 @@
+{
+  "batch": {
+    "graph": {
+      "nodes": {
+        "image_to_latents": {
+          "type": "i2l",
+          "id": "image_to_latents",
+          "image": {
+            "image_name": "REPLACE_WITH_UPLOADED_IMAGE_NAME"
+          }
+        },
+        "model_loader": {
+          "type": "sdxl_model_loader",
+          "id": "model_loader",
+          "model": {
+            "key": "a95230a4-0304-451b-9e85-1e112bee1f14",
+            "hash": "blake3:1f500a206b3b305723705d2c11800e8d0d6f1cdae637764ea9812a83f00e0ba5",
+            "name": "Juggernaut XL v9",
+            "base": "sdxl",
+            "type": "main"
+          }
+        },
+        "positive_prompt": {
+          "type": "sdxl_compel_prompt",
+          "id": "positive_prompt",
+          "prompt": "(boy standing between two red Honda CRF dirt bikes:1.3), forest trail background, tall pine trees, dappled sunlight filtering through canopy, natural dirt path with tire tracks, ferns and undergrowth, outdoor motocross adventure, professional photography, golden hour lighting, photorealistic, highly detailed",
+          "style": "(boy standing between two red Honda CRF dirt bikes:1.3), forest trail background, tall pine trees, dappled sunlight filtering through canopy, natural dirt path with tire tracks, ferns and undergrowth, outdoor motocross adventure, professional photography, golden hour lighting, photorealistic, highly detailed"
+        },
+        "negative_prompt": {
+          "type": "sdxl_compel_prompt",
+          "id": "negative_prompt",
+          "prompt": "garage, indoor, warehouse, car, corvette, sports car, building, walls, ceiling, concrete floor, tools, shelves, enclosed space, artificial lighting, distorted, deformed, blurry, low quality, bad anatomy",
+          "style": ""
+        },
+        "noise": {
+          "type": "noise",
+          "id": "noise",
+          "seed": 1234567890,
+          "width": 1280,
+          "height": 960,
+          "use_cpu": false
+        },
+        "denoise": {
+          "type": "denoise_latents",
+          "id": "denoise",
+          "steps": 35,
+          "cfg_scale": 7.0,
+          "scheduler": "euler",
+          "denoising_start": 0.45,
+          "denoising_end": 1.0
+        },
+        "latents_to_image": {
+          "type": "l2i",
+          "id": "latents_to_image"
+        },
+        "save_image": {
+          "type": "save_image",
+          "id": "save_image",
+          "is_intermediate": false
+        }
+      },
+      "edges": [
+        {
+          "source": {"node_id": "model_loader", "field": "unet"},
+          "destination": {"node_id": "denoise", "field": "unet"}
+        },
+        {
+          "source": {"node_id": "model_loader", "field": "clip"},
+          "destination": {"node_id": "positive_prompt", "field": "clip"}
+        },
+        {
+          "source": {"node_id": "model_loader", "field": "clip"},
+          "destination": {"node_id": "negative_prompt", "field": "clip"}
+        },
+        {
+          "source": {"node_id": "model_loader", "field": "clip2"},
+          "destination": {"node_id": "positive_prompt", "field": "clip2"}
+        },
+        {
+          "source": {"node_id": "model_loader", "field": "clip2"},
+          "destination": {"node_id": "negative_prompt", "field": "clip2"}
+        },
+        {
+          "source": {"node_id": "model_loader", "field": "vae"},
+          "destination": {"node_id": "image_to_latents", "field": "vae"}
+        },
+        {
+          "source": {"node_id": "image_to_latents", "field": "latents"},
+          "destination": {"node_id": "denoise", "field": "latents"}
+        },
+        {
+          "source": {"node_id": "positive_prompt", "field": "conditioning"},
+          "destination": {"node_id": "denoise", "field": "positive_conditioning"}
+        },
+        {
+          "source": {"node_id": "negative_prompt", "field": "conditioning"},
+          "destination": {"node_id": "denoise", "field": "negative_conditioning"}
+        },
+        {
+          "source": {"node_id": "noise", "field": "noise"},
+          "destination": {"node_id": "denoise", "field": "noise"}
+        },
+        {
+          "source": {"node_id": "denoise", "field": "latents"},
+          "destination": {"node_id": "latents_to_image", "field": "latents"}
+        },
+        {
+          "source": {"node_id": "model_loader", "field": "vae"},
+          "destination": {"node_id": "latents_to_image", "field": "vae"}
+        },
+        {
+          "source": {"node_id": "latents_to_image", "field": "image"},
+          "destination": {"node_id": "save_image", "field": "image"}
+        }
+      ]
+    },
+    "runs": 1,
+    "data": null
+  }
+}

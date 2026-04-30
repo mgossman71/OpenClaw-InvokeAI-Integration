@@ -139,3 +139,126 @@ When InvokeAI runs with multiuser disabled, no API key is needed. Just make requ
 - [InvokeAI MCP Server](https://github.com/coinstax/invokeai-mcp-server) - Reference implementation
 - [InvokeAI GitHub](https://github.com/invoke-ai/InvokeAI)
 - [InvokeAI Documentation](https://invoke-ai.github.io/InvokeAI/)
+
+---
+
+## Image-to-Image (img2img) Learnings
+
+**Date Added:** 2026-04-30
+**Test Case:** Transform garage photo (boy + 2 dirt bikes) to woods trail background
+
+### 11. Strength Parameter is Critical
+
+The `strength` parameter (via `denoising_start = 1.0 - strength`) controls everything:
+
+| Strength | Result | Lesson |
+|----------|--------|--------|
+| 0.38-0.45 | Background doesn't fully change, garage still visible | Too conservative |
+| 0.50-0.60 | **Sweet spot** - background changes, subjects mostly preserved | ✅ Recommended |
+| 0.68-0.75 | Background fully changes but subjects get distorted/reconstructed | Too aggressive |
+
+**Test Results:**
+- `0.75` - Lost the person entirely
+- `0.45` - Person preserved but garage still visible
+- `0.38` - Garage barely changed
+- `0.68` - Woods background but distorted subjects
+- `0.55` - Best compromise
+
+### 12. VAE Connection to image_to_latents is Mandatory
+
+The `i2l` (image_to_latents) node **must** have a VAE input from the model loader.
+
+**Missing edge causes:**
+```
+Node i2l missing connections for field vae
+```
+
+**Required edge:**
+```json
+{
+  "source": {"node_id": "model_loader", "field": "vae"},
+  "destination": {"node_id": "image_to_latents", "field": "vae"}
+}
+```
+
+### 13. Noise Dimensions Must Match Image Exactly
+
+The `noise` node's `width` and `height` must match the uploaded image dimensions.
+
+**Error if wrong:**
+```
+Incompatible 'noise' and 'latents' shapes: 
+latents.shape=torch.Size([1, 4, 120, 160]) 
+noise.shape=torch.Size([1, 4, 64, 64])
+```
+
+**Solution:** Get width/height from upload response, pass to noise node:
+```python
+image_name, width, height = upload_image(path)
+# Use in noise node:
+"noise": {"width": width, "height": height}
+```
+
+### 14. Image Upload Endpoint Details
+
+**Endpoint:** `/api/v1/images/upload` (singular, not `/uploads`)
+
+**Query params required:**
+```
+?image_category=user&is_intermediate=false
+```
+
+**Request:** multipart/form-data with `file` field
+
+**Response:**
+```json
+{
+  "image_name": "uuid.png",
+  "width": 1280,
+  "height": 960
+}
+```
+
+### 15. Prompt Weighting Helps Subject Preservation
+
+Use weighted emphasis to prioritize subjects:
+```
+(boy with red Honda dirt bike:1.3)  # 30% more emphasis
+((forest background))               # ~21% more emphasis
+```
+
+**Template:**
+```
+Positive: "(subjects:1.3), new background description, lighting, atmosphere"
+Negative: "old background elements, indoor, walls, ceiling, unwanted objects"
+```
+
+### 16. The Fundamental Trade-off
+
+**You cannot perfectly preserve subjects while completely changing the background with img2img alone.**
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| Low strength (0.35-0.50) | Subjects preserved perfectly | Background change is subtle |
+| High strength (0.65-0.75) | Background fully transforms | Subjects get distorted |
+| **Inpainting (Unified Canvas)** | Perfect preservation + clean background | Requires manual masking |
+
+**For zero-distortion background replacement:** Use InvokeAI's Unified Canvas web UI with inpainting/masking.
+
+### 17. Complete Working Graph Structure
+
+See `docs/IMG2IMG.md` and `examples/sdxl-img2img-request.json` for the complete working graph with all required nodes and edges.
+
+**Key nodes for SDXL img2img:**
+- `image_to_latents` (i2l) - converts input image to latents
+- `sdxl_model_loader` - loads the model
+- `sdxl_compel_prompt` (x2) - positive and negative prompts
+- `noise` - must match image dimensions
+- `denoise_latents` - the transformation (uses denoising_start/end)
+- `l2i` - latents to image
+- `save_image` - final output
+
+**Critical edges:**
+- `model_loader.vae` → `image_to_latents.vae` (commonly missed!)
+- `image_to_latents.latents` → `denoise.latents` (the img2img connection)
+- `noise.noise` → `denoise.noise`
